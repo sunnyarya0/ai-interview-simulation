@@ -2,9 +2,15 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 export const useInterviewStore = defineStore('interview', () => {
-  const interviewId = ref(null)
   const resumeId = ref(null)
-  const status = ref(null)
+  const resumeStatus = ref(null)
+  const interviewId = ref(null)
 
-  return { interviewId, resumeId, status }
+  function reset() {
+    resumeId.value = null
+    resumeStatus.value = null
+    interviewId.value = null
+  }
+
+  return { resumeId, resumeStatus, interviewId, reset }
 })

@@ -43,5 +43,8 @@ def setup_logging() -> None:
         logging.getLogger(name).handlers = [_InterceptHandler()]
         logging.getLogger(name).propagate = False
 
+    # Quiet noisy per-request HTTP client logs (Ollama calls go through httpx)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
 
 setup_logging()
