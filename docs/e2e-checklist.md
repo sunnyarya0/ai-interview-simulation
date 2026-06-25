@@ -39,3 +39,25 @@ Open `http://localhost:5173` in Chrome. **Use headphones.**
 - The audio contract (16kHz mono int16 PCM ↔ WAV) was round-trip verified in Phase 3.
 - Reconnect server logic proven by `backend/scripts/reconnect_test.py`; the browser auto-reconnect
   badge is the only reconnect piece needing a manual check.
+
+## Run results — 2026-06-25 (programmatic pass)
+
+Driven via curl + `scripts/interview_client.py` against a live backend (Ollama `llama3.2`,
+faster-whisper `base.en`, macOS `say` TTS). All automatable items passed.
+
+| # | Item | Result |
+|---|------|--------|
+| 1 | PDF upload | ✅ → `ready` |
+| 2 | DOCX upload | ✅ → `ready` |
+| 3 | `.txt` upload | ✅ HTTP 422 |
+| 4 | AI greeting | ✅ greeted candidate by name, asked a resume-grounded first question |
+| 5 | Spoken answer → AI response | ✅ STT transcribed; AI replied with streamed audio (376–610 KB/turn) |
+| 6 | Resume-grounded questions | ✅ cited PyTorch vs TensorFlow, Kubernetes, 10M users, AWS, latency |
+| 9 | Feedback report | ✅ overall 85 · comm 90 · tech 80 · resume_knowledge 95 · 2/2/2 lists |
+| 11 | Reconnect/resume | ✅ drop→active (no premature feedback)→resume→graceful end→completed+feedback |
+| 12 | CORS | ✅ preflight + origin enforcement |
+| — | Frontend dev server | ✅ serves HTTP 200 at :5173 |
+| — | Transcript persistence | ✅ 5 ordered turns; status `completed` |
+
+**Pending manual (browser only):** 7 (caption DOM), 8 (End → route), 10 (Start New → reset),
+11b ("Reconnecting…" badge). All ride protocols/flows already proven above.
