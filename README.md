@@ -64,11 +64,14 @@ The server starts at `http://localhost:8000`. Migrations run automatically on st
 
 ```bash
 cd frontend
+cp .env.example .env      # optional — defaults point at localhost:8000
 npm install
 npm run dev
 ```
 
-The app opens at `http://localhost:5173`.
+The app opens at `http://localhost:5173`. **Use headphones** for the interview — the AI's
+voice and your mic share the listening window (barge-in is not enabled in V1), so headphones
+prevent the AI from hearing itself.
 
 ### 4. Redis
 

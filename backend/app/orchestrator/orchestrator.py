@@ -80,6 +80,7 @@ class InterviewOrchestrator:
         self.audio_buf = bytearray()
         self.turn_count = 0
         self._turn_index = 0
+        self.finished = False  # True only on graceful end (turn cap / end_interview)
         self.system_prompt = build_system_prompt(self.profile)
 
     # ---- bookkeeping -------------------------------------------------------
@@ -142,6 +143,26 @@ class InterviewOrchestrator:
         await self._persist_turn("ai", text)
         return text
 
+    # ---- reconnect ---------------------------------------------------------
+
+    def rehydrate(self, turns: list) -> None:
+        """Rebuild in-memory state from persisted TranscriptTurn rows (on reconnect)."""
+        self.history = [{"speaker": t.speaker, "text": t.text} for t in turns]
+        self._turn_index = len(turns)
+        self.turn_count = sum(1 for t in turns if t.speaker == "candidate")
+
+    async def resume(self) -> None:
+        """Replay the last AI question (audio + caption) so the candidate knows where
+        they left off, then resume listening. Does not persist (no duplicate rows)."""
+        last_ai = next((t["text"] for t in reversed(self.history) if t["speaker"] == "ai"), None)
+        if last_ai:
+            await self.transition(InterviewState.SPEAKING)
+            await self._send_json({"type": "transcript", "speaker": "ai", "text": last_ai})
+            wav = await asyncio.to_thread(_tts().synthesize, last_ai)
+            await self._send_bytes(wav)
+        await self.transition(InterviewState.LISTENING)
+        logger.info("interview {} resumed ({} turns)", self.interview_id, len(self.history))
+
     # ---- conversation flow -------------------------------------------------
 
     async def start(self) -> None:
@@ -180,6 +201,7 @@ class InterviewOrchestrator:
             await self.transition(InterviewState.LISTENING)
 
     async def _close(self) -> None:
+        self.finished = True
         await self.transition(InterviewState.CLOSING)
         await self._generate_and_speak(build_closing_prompt(self.profile))
         await self.transition(InterviewState.DONE)
@@ -187,6 +209,7 @@ class InterviewOrchestrator:
         logger.info("interview {} closed at turn cap ({})", self.interview_id, self.turn_count)
 
     async def on_end_interview(self) -> None:
+        self.finished = True
         await self.transition(InterviewState.DONE)
         await self._send_json({"type": "interview_end"})
         logger.info("interview {} ended early ({} turns)", self.interview_id, self.turn_count)

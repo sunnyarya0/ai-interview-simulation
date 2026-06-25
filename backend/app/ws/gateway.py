@@ -3,9 +3,10 @@ import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from sqlalchemy import select
 
 from app.core.logger import logger
-from app.db.models import Interview, Resume
+from app.db.models import Interview, Resume, TranscriptTurn
 from app.db.session import AsyncSessionLocal
 from app.orchestrator.orchestrator import InterviewOrchestrator
 from app.workers.feedback import generate_feedback
@@ -29,7 +30,7 @@ async def _set_status(interview_id: str, status: str, *, started: bool = False, 
 
 @router.websocket("/interviews/{interview_id}/stream")
 async def interview_stream(websocket: WebSocket, interview_id: str):
-    # Validate the interview and load the candidate profile before accepting.
+    # Validate the interview, load the profile + any prior turns before accepting.
     async with AsyncSessionLocal() as session:
         interview = await session.get(Interview, interview_id)
         if interview is None:
@@ -38,10 +39,16 @@ async def interview_stream(websocket: WebSocket, interview_id: str):
         resume = await session.get(Resume, interview.resume_id)
         profile = (resume.structured_profile if resume else {}) or {}
         resume_id = interview.resume_id
+        status = interview.status
+        turns = (
+            await session.execute(
+                select(TranscriptTurn)
+                .where(TranscriptTurn.interview_id == interview_id)
+                .order_by(TranscriptTurn.turn_index)
+            )
+        ).scalars().all()
 
     await websocket.accept()
-    await _set_status(interview_id, "active", started=True)
-    logger.info("interview {} connected", interview_id)
 
     async def send_json(msg: dict) -> None:
         await websocket.send_json(msg)
@@ -49,10 +56,26 @@ async def interview_stream(websocket: WebSocket, interview_id: str):
     async def send_bytes(data: bytes) -> None:
         await websocket.send_bytes(data)
 
+    # Already-finished interview: nothing to resume.
+    if status == "completed":
+        await send_json({"type": "interview_end"})
+        await websocket.close()
+        return
+
     orch = InterviewOrchestrator(interview_id, resume_id, profile, send_json, send_bytes)
 
     try:
-        await orch.start()
+        if turns:
+            # Reconnect: rebuild state from persisted turns and resume listening.
+            await _set_status(interview_id, "active")
+            orch.rehydrate(turns)
+            await orch.resume()
+            logger.info("interview {} reconnected", interview_id)
+        else:
+            # Fresh start (or dropped during greeting before any turn was saved).
+            await _set_status(interview_id, "active", started=True)
+            logger.info("interview {} connected", interview_id)
+            await orch.start()
         while True:
             msg = await websocket.receive()
             if msg["type"] == "websocket.disconnect":
@@ -78,7 +101,11 @@ async def interview_stream(websocket: WebSocket, interview_id: str):
         except Exception:
             pass
     finally:
-        await _set_status(interview_id, "completed", ended=True)
-        # Generate feedback off the socket so closing isn't blocked (~10-20s LLM call).
-        asyncio.create_task(generate_feedback(interview_id))
-        logger.info("interview {} closed", interview_id)
+        if orch.finished:
+            # Graceful end (turn cap / End button): complete + generate feedback.
+            await _set_status(interview_id, "completed", ended=True)
+            asyncio.create_task(generate_feedback(interview_id))
+            logger.info("interview {} completed", interview_id)
+        else:
+            # Transient disconnect: leave 'active' so the candidate can reconnect & resume.
+            logger.info("interview {} disconnected (resumable)", interview_id)

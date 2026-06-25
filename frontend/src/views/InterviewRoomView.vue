@@ -32,8 +32,22 @@ async function cleanup() {
 onMounted(async () => {
   media.reset()
 
-  ws.on('open', () => (media.connected = true))
-  ws.on('close', () => (media.connected = false))
+  ws.on('open', () => {
+    media.connected = true
+    media.reconnecting = false
+  })
+  ws.on('reconnecting', () => {
+    media.connected = false
+    media.reconnecting = true
+  })
+  ws.on('reconnected', () => {
+    media.reconnecting = false
+  })
+  ws.on('close', () => {
+    media.connected = false
+    if (media.reconnecting) error.value = 'Connection lost. Please refresh to rejoin.'
+    media.reconnecting = false
+  })
   ws.on('state', (m) => {
     const listening = m.value === 'listening'
     media.isListening = listening
@@ -81,8 +95,8 @@ onUnmounted(cleanup)
     <div class="flex items-center justify-between px-6 py-3 border-b border-slate-700">
       <h1 class="font-semibold">AI Interview</h1>
       <div class="flex items-center gap-2 text-sm">
-        <span :class="['h-2 w-2 rounded-full', media.connected ? 'bg-green-400' : 'bg-slate-500']"></span>
-        <span class="text-slate-400">{{ media.connected ? 'Connected' : 'Connecting…' }}</span>
+        <span :class="['h-2 w-2 rounded-full', media.reconnecting ? 'bg-amber-400 animate-pulse' : media.connected ? 'bg-green-400' : 'bg-slate-500']"></span>
+        <span class="text-slate-400">{{ media.reconnecting ? 'Reconnecting…' : media.connected ? 'Connected' : 'Connecting…' }}</span>
       </div>
     </div>
 
