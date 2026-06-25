@@ -61,3 +61,31 @@ faster-whisper `base.en`, macOS `say` TTS). All automatable items passed.
 
 **Pending manual (browser only):** 7 (caption DOM), 8 (End → route), 10 (Start New → reset),
 11b ("Reconnecting…" badge). All ride protocols/flows already proven above.
+
+## Browser verification
+
+### A. Automated (Playwright) — items 7, 8, 9(UI), 10
+A real headless Chromium with fake-media flags. Covers the DOM + routing flow (it cannot do a
+real spoken turn — a fake mic is silent — so it ends the interview right after the greeting).
+
+```bash
+# with backend + redis + ollama + `npm run dev` all running:
+cd frontend
+npm install                    # pulls @playwright/test (now in devDependencies)
+npx playwright install chromium
+npm run test:e2e               # runs tests/browser_e2e.spec.js
+```
+Expected: upload → "Start Interview" enables → routes to /interview/:id → greeting caption
+appears → End → /feedback/:id → "Overall Score" renders → Start New → back to upload. Green = 7/8/9/10 pass.
+
+### B. Human-only — the real audio experience + #11b reconnect
+A fake mic can't validate that you can *speak and be heard* or that the AI *sounds* natural.
+Do this once, in Chrome, **with headphones**:
+1. `npm run dev`, open http://localhost:5173, upload a resume, click **Start Interview**, grant mic.
+2. **Hear** the AI greeting; the orb pulses while speaking, rings green when listening.
+3. **Speak** an answer, then pause ~1s → your caption appears (right), AI follow-up plays (left).
+4. Do 2–3 turns; confirm questions reference your resume.
+5. **#11b reconnect:** mid-interview, stop the backend (Ctrl-C) → header shows "Reconnecting…";
+   restart `uvicorn` within ~8s → it reconnects and the AI replays its last question.
+6. **End Interview** → feedback report → **Start New Interview** → home.
+7. Throughout: DevTools console clean (no CORS/errors).
